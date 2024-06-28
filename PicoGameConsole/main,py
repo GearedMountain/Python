@@ -1,0 +1,235 @@
+from machine import Pin, I2C
+from ssd1306 import SSD1306_I2C
+import framebuf
+import time
+import _thread
+import math
+
+WIDTH=128
+HEIGHT=64
+i2c = I2C(0,scl=Pin(1),sda=Pin(0),freq=200000)
+oled = SSD1306_I2C(WIDTH,HEIGHT,i2c)
+
+#Defined first for Boot override
+#Boot override used to skip loading / logo screen
+Main = Pin(14, Pin.IN, Pin.PULL_UP)
+BootOverride = False
+if Main.value() == 0:
+    BootOverride = True
+    
+#BOOTUP SEQUEST GM LOGO
+oled.text("GearedMountain",8,4)
+oled.text("ClickerOS",28,16)
+oled.hline(30, 60, 68,1)
+oled.hline(30, 61, 68,1)
+oled.hline(31, 59, 66,1)
+oled.hline(32, 58, 64,1)
+
+oled.line(30,60,45,50,1)
+oled.line(31,61,46,51,1)
+oled.line(32,61,47,52,1)
+oled.line(33,61,48,53,1)
+
+oled.line(45,50,50,40,1)
+oled.line(46,51,51,41,1)
+oled.line(47,52,52,42,1)
+
+oled.line(50,40,55,35,1)
+oled.line(51,41,56,36,1)
+oled.line(52,42,57,37,1)
+
+oled.line(55,35,60,25,1)
+oled.line(56,36,61,26,1)
+oled.line(57,37,62,27,1)
+
+#Filler
+
+oled.line(38,60,62,27,1)
+for i in range(12):
+    oled.line(i + 38,60,62,27,1)
+for i in range(15):
+    oled.line(70,60,47,44 + i,1)
+
+oled.line(82,60,80,54,1)
+oled.line(80,54,75,60,1)
+
+oled.line(60,25,70,38,1)
+oled.line(59,26,69,39,1)
+
+oled.line(70,38,80,43,1)
+oled.line(69,39,79,44,1)
+
+oled.line(80,43,97,60,1)
+oled.line(79,44,96,61,1)
+
+oled.show()
+
+if not BootOverride:
+    time.sleep(4)
+
+#Defined Pins, RightTop - LeftBottom name system
+RB = Pin(15, Pin.IN, Pin.PULL_UP)
+RT = Pin(16, Pin.IN, Pin.PULL_UP)
+LT = Pin(17, Pin.IN, Pin.PULL_UP)
+LB = Pin(18, Pin.IN, Pin.PULL_UP)
+
+oled.fill(0)
+oled.text("Funds:$0",0,0)
+oled.text("+1MPP:$10",0,16)
+#oled.hline(0, 10, 128, 1)
+oled.hline(0, 11, 128, 1)
+oled.hline(0, 12, 128, 1)
+oled.hline(0, 13, 128, 1)
+#oled.hline(0, 14, 128, 1)
+oled.text("+1MPS:$20",0,24)
+oled.show()
+
+#GLOBAL GAME VARIABLES
+
+ButtonsDown = []
+Money = 0
+MoneyPerPress = 1
+MoneyPerSecond = 0
+UpgradePrice = [10,20]
+
+HeaderState = 0
+def NumberShorten(x):
+    Mod = GetWordMod(x)
+    if Mod == " ":
+        return x
+    return str(x / 1000) + Mod
+
+def GetWordMod(x):
+    WordModifiers = [" ","K","M","B","T","Qa","Qi","Sx"]
+    return WordModifiers[(len(str(x))-1)//3]
+
+#Updates Money or MPP in Yellow header
+def UpdateHeader():
+    if HeaderState == 0:
+       oled.fill_rect(48, 0, 128, 8, 0)
+       oled.text(f"${NumberShorten(Money)}",48,0)
+    elif HeaderState == 2:
+       oled.fill_rect(36, 0, 128, 8, 0)
+       oled.text(f"${NumberShorten(MoneyPerPress)}",32,0)
+       
+def MainPress():
+    global Money
+    Money += MoneyPerPress
+    UpdateHeader()
+    #oled.pixel(fart,10,1)
+    
+def RBPress():
+    global Money
+    global UpgradePrice
+    if Money >= UpgradePrice[0]:
+        global MoneyPerPress
+        MoneyPerPress += 1
+        Money -= UpgradePrice[0]
+        UpgradePrice[0] = math.floor(UpgradePrice[0] * 1.2)
+        UpdateHeader()
+        
+        oled.fill_rect(48, 16, 80, 8, 0)
+        oled.text(f"${NumberShorten(UpgradePrice[0])}",48,16)
+        
+def LBPress():
+    global Money
+    global UpgradePrice
+    if Money >= UpgradePrice[1]:
+        global MoneyPerSecond
+        MoneyPerSecond += 1
+        Money -= UpgradePrice[1]
+        UpgradePrice[1] = math.floor(UpgradePrice[1] * 1.2)
+        UpdateHeader()
+        
+        oled.fill_rect(48, 24, 80, 8, 0)
+        oled.text(f"${NumberShorten(UpgradePrice[1])}",48,24)        
+FrozenHeader = ""
+#Header State Key
+#0 : Money
+#1 : Money > MPP
+#2 : MPP
+#3 : MPP > Money
+def RTPress():
+    global HeaderState
+    global FrozenHeader
+    if HeaderState == 1 or HeaderState == 3:
+        return
+    if HeaderState == 0:
+        HeaderState = 1
+        FrozenHeader = f"Funds:${NumberShorten(Money)}"
+    if HeaderState == 2:
+        HeaderState = 3
+        FrozenHeader = f"MPP:${NumberShorten(MoneyPerPress)}"
+    
+    HeaderState = HeaderTransition(HeaderState)
+    UpdateHeader()
+    
+def HeaderTransition(x):
+    #Lower means less frames aka faster
+    TransitionSpeed = 4
+    
+    DistancePerFrame = int(100 / TransitionSpeed)
+    global FrozenHeader
+    NewHeader = ""
+    if x == 1:
+        NewHeader = f"MPP:${NumberShorten(MoneyPerPress)}"
+    elif x == 3:
+        NewHeader = f"Funds:${NumberShorten(Money)}"
+    for i in range(TransitionSpeed+1):
+        print(i)
+        oled.fill_rect(0, 0, 120, 8, 0)
+        oled.show()
+        oled.text(FrozenHeader,0-i*DistancePerFrame,0)
+        oled.show()
+    for i in range(TransitionSpeed):
+        print(i)
+        oled.fill_rect(0, 0, 120, 8, 0)
+        oled.show()
+        oled.text(NewHeader,-120+i*DistancePerFrame,0)
+        oled.show()
+    oled.fill_rect(0, 0, 120, 8, 0)
+    oled.show()
+    oled.text(NewHeader,0,0)
+    oled.show()
+    if x == 1:
+        return 2
+    elif x == 3:
+        return 0     
+ 
+def MoneyMaker():
+    global Money
+    while True:
+        time.sleep(1)
+        Money+=MoneyPerSecond
+        UpdateHeader()
+    
+_thread.start_new_thread(MoneyMaker, ())
+while True:
+    if Main.value() == 0 and "Main" not in ButtonsDown:
+        ButtonsDown.append("Main")
+        MainPress()
+    elif Main.value() == 1 and "Main" in ButtonsDown:
+        ButtonsDown.remove("Main")
+        
+    if RB.value() == 0 and "RB" not in ButtonsDown:
+        ButtonsDown.append("RB")
+        RBPress()
+    elif RB.value() == 1 and "RB" in ButtonsDown:
+        ButtonsDown.remove("RB")
+        
+    if RT.value() == 0 and "RT" not in ButtonsDown:
+        ButtonsDown.append("RT")
+        RTPress()
+    elif RT.value() == 1 and "RT" in ButtonsDown:
+        ButtonsDown.remove("RT")
+        
+    if LB.value() == 0 and "LB" not in ButtonsDown:
+        ButtonsDown.append("LB")
+        LBPress()
+    elif LB.value() == 1 and "LB" in ButtonsDown:
+        ButtonsDown.remove("LB")
+
+    oled.show()
+    time.sleep(0.01)
+    
+    
