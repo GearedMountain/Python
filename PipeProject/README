@@ -1,0 +1,6 @@
+This is a single function python script designed to take an input file including coordinates and a pipe designated to that coordinate.
+The asterik is the "water source" of the image and any alphabetical letter is a sink connected to the water system.
+
+The function starts at the asterik and checks all 4 directions to see if those pipes can be filled with water. If the pipe is connected in a way that makes sense (two opening touching eachother)
+the pipe then becomes "filled" and is added to a dictionary called fillmap. It is also sent to a stack that allows the while loop to know to continue running until the stack is completely empty.
+This repeats until all connected pipes are determined, at which point the function will return all connected sinks in alphabetical order.
